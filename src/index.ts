@@ -16,15 +16,25 @@ const cwClient = new CloudWatchClient({
     secretAccessKey: process.env.SECRET_ACCESS_KEY!,
   },
 });
-
-setInterval(sendMetricData, 500);
+const maxClients = 2;
 
 // Server
 const server = createServer(requestHandler);
-
 const wss = new WebSocketServer({ server });
 
+let prevClientsCount = 0;
+
 wss.on("connection", function connection(ws) {
+  const clientsCount = wss.clients.values.length;
+
+  if (clientsCount >= maxClients && prevClientsCount < maxClients) {
+    sendMetricData(true);
+  } else if (clientsCount < maxClients && prevClientsCount >= maxClients) {
+    sendMetricData(false);
+  }
+
+  prevClientsCount = clientsCount;
+
   ws.on("message", function message(data) {
     console.log("received: %s", data);
   });
@@ -52,22 +62,16 @@ function requestHandler(
   res.end(Array.from(wss.clients).length.toString());
 }
 
-async function sendMetricData() {
+async function sendMetricData(isFull: boolean) {
   const params = {
     MetricData: [
       {
-        MetricName: "CONCURRENT_CONNECTIONS",
-        Dimensions: [
-          {
-            Name: "CONNECTED_USERS",
-            Value: "IDK",
-          },
-        ],
+        MetricName: "IS_FULL",
         Unit: "None",
-        Value: Array.from(wss.clients).length,
+        Value: isFull ? 1 : 0,
       },
     ],
-    Namespace: "SERVER/CONNECTIONS",
+    Namespace: "SERVER/FULL",
   };
 
   try {
