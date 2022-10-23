@@ -9,7 +9,13 @@ import { WebSocketServer } from "ws";
 
 // Cloudwatch
 const region = "eu-west-2";
-const cwClient = new CloudWatchClient({ region });
+const cwClient = new CloudWatchClient({
+  region,
+  credentials: {
+    accessKeyId: process.env.ACCESS_KEY_ID!,
+    secretAccessKey: process.env.SECRET_ACCESS_KEY!,
+  },
+});
 
 setInterval(sendMetricData, 500);
 
