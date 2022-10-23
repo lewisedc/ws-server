@@ -67,6 +67,12 @@ async function sendMetricData(isFull: boolean) {
     MetricData: [
       {
         MetricName: "IS_FULL",
+        Dimensions: [
+          {
+            Name: "DIMENSION_NAME",
+            Value: "DIMENSION_VALUE",
+          },
+        ],
         Unit: "None",
         Value: isFull ? 1 : 0,
       },
