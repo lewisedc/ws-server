@@ -29,7 +29,7 @@ function requestHandler(
 ) {
   switch (req.url) {
     case "/available": {
-      if (wss.clients.values.length >= Number(process.env.MAX_CONNECTIONS!)) {
+      if (Array.from(wss.clients).length >= Number(process.env.MAX_CONNECTIONS!)) {
         res.writeHead(503);
         res.end();
         return;
@@ -42,7 +42,7 @@ function requestHandler(
 
     case "/connections": {
       res.writeHead(200);
-      res.end(wss.clients.values.length.toString());
+      res.end(Array.from(wss.clients).length.toString());
       return;
     }
 
