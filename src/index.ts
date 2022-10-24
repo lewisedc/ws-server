@@ -34,7 +34,7 @@ const redisSubscriberClient = redisPublisherClient.duplicate();
 redisPublisherClient.connect();
 redisSubscriberClient.connect();
 
-const stream = "testing123";
+const stream = "testing6";
 const gameState = {
   gameLength: 5,
   roundTime: 0,
@@ -82,18 +82,18 @@ wss.on("connection", async (ws) => {
 
   ws.on("close", async () => {
     await redisPublisherClient.XADD(stream, "*", {
-      event: JSON.stringify({ id: "player left", player: { id } }),
+      event: JSON.stringify({ event: "player left", player: { id } }),
     });
   });
 
   ws.on("error", async () => {
     await redisPublisherClient.XADD(stream, "*", {
-      event: JSON.stringify({ id: "player left", player: { id } }),
+      event: JSON.stringify({ event: "player left", player: { id } }),
     });
   });
 
   await redisPublisherClient.XADD(stream, "*", {
-    event: JSON.stringify({ id: "player joined", player: { id } }),
+    event: JSON.stringify({ event: "player joined", player: { id } }),
   });
 });
 
@@ -196,16 +196,16 @@ async function streamListener() {
     const messages: { id: string; message: any }[] = streams[0].messages;
     const parsedMessages = messages.map(({ message }) => JSON.parse(message.event));
 
+    broadcast(JSON.stringify(parsedMessages));
+
     parsedMessages.forEach((event: any) => {
       switch (event.id) {
         case "player joined": {
-          broadcast(JSON.stringify(parsedMessages));
           gameState.players.push(event.player);
           break;
         }
 
         case "player left": {
-          broadcast(JSON.stringify(parsedMessages));
           gameState.players.splice(
             gameState.players.findIndex((player: any) => player.id === event.player.id),
             1
