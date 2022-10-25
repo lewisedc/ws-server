@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "http";
-import type { RawData } from "ws";
+import type { RawData, WebSocket } from "ws";
 
 import * as dotenv from "dotenv";
 dotenv.config();
@@ -9,6 +9,7 @@ import { WebSocketServer } from "ws";
 import { DynamoDBClient, UpdateItemCommand } from "@aws-sdk/client-dynamodb";
 import { AutoScalingClient, SetDesiredCapacityCommand } from "@aws-sdk/client-auto-scaling";
 import { createClient } from "redis";
+import { nanoid } from "nanoid";
 
 let awsCredentials;
 if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
@@ -34,7 +35,7 @@ const redisSubscriberClient = redisPublisherClient.duplicate();
 redisPublisherClient.connect();
 redisSubscriberClient.connect();
 
-const stream = "testing7";
+const stream = "testing10";
 const gameState = {
   gameLength: 5,
   roundTime: 0,
@@ -43,7 +44,9 @@ const gameState = {
   moveEnabled: true,
   players: [] as any,
 };
+const connections = new Map<string, WebSocket>();
 let events: any[] = [];
+let clientsRequestingState = new Set();
 
 // heartbeat
 declare module "ws" {
@@ -64,7 +67,7 @@ setInterval(() => {
 let canScale = true;
 wss.on("connection", async (ws) => {
   const shouldScale =
-    Array.from(wss.clients).length >= Number(process.env.MAX_CONNECTIONS!) * 0.5 &&
+    wss.clients.size >= Number(process.env.MAX_CONNECTIONS!) * 0.5 &&
     canScale &&
     process.env.NODE_ENV === "production";
 
@@ -79,7 +82,8 @@ wss.on("connection", async (ws) => {
 
   ws.on("message", messageHandler);
 
-  const id = Math.floor(Math.random() * 1000000);
+  const id = nanoid();
+  connections.set(id, ws);
 
   ws.on("close", async () => {
     await redisPublisherClient.XADD(stream, "*", {
@@ -93,19 +97,35 @@ wss.on("connection", async (ws) => {
     });
   });
 
+  clientsRequestingState.add(ws);
+
   await redisPublisherClient.XADD(stream, "*", {
     event: JSON.stringify({ event: "player joined", player: { id } }),
   });
 });
 
 setInterval(() => {
-  if (events.length === 0) return;
+  if (events.length === 0 && clientsRequestingState.size === 0) return;
 
   const eventsString = JSON.stringify(events);
+  const eventsStringWithState = JSON.stringify([
+    { event: "joined", state: gameState },
+    ...events.filter((event) => {
+      switch (event.event) {
+        case "player joined": {
+          return clientsRequestingState.has(connections.get(event.player.id)) ? false : true;
+        }
+        case "player left": {
+          return clientsRequestingState.has(connections.get(event.player.id)) ? true : false;
+        }
+      }
+    }),
+  ]);
 
-  broadcast(eventsString);
+  broadcast(eventsString, eventsStringWithState);
 
   events = [];
+  clientsRequestingState.clear();
 }, 1000);
 
 streamListener();
@@ -143,7 +163,7 @@ function requestHandler(
 ) {
   switch (req.url) {
     case "/available": {
-      if (Array.from(wss.clients).length >= Number(process.env.MAX_CONNECTIONS!)) {
+      if (wss.clients.size >= Number(process.env.MAX_CONNECTIONS!)) {
         res.writeHead(503);
         res.end();
         return;
@@ -156,7 +176,7 @@ function requestHandler(
 
     case "/connections": {
       res.writeHead(200);
-      res.end(Array.from(wss.clients).length.toString());
+      res.end(wss.clients.size.toString());
       return;
     }
 
@@ -188,7 +208,11 @@ async function updateScalingCapacity() {
     DesiredCapacity: amount,
     HonorCooldown: false,
   });
-  autoScalingClient.send(setDesiredCapacityCommand);
+  try {
+    autoScalingClient.send(setDesiredCapacityCommand);
+  } catch (error) {
+    console.log("Auto scaling error:", error);
+  }
 }
 
 async function streamListener() {
@@ -230,8 +254,12 @@ async function streamListener() {
   }
 }
 
-function broadcast(message: any) {
+function broadcast(message: string, individualMessage: string) {
   wss.clients.forEach((client) => {
-    client.send(message);
+    if (clientsRequestingState.has(client)) {
+      client.send(individualMessage);
+    } else {
+      client.send(message);
+    }
   });
 }
