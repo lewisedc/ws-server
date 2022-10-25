@@ -34,7 +34,7 @@ const redisSubscriberClient = redisPublisherClient.duplicate();
 redisPublisherClient.connect();
 redisSubscriberClient.connect();
 
-const stream = "testing6";
+const stream = "testing7";
 const gameState = {
   gameLength: 5,
   roundTime: 0,
@@ -43,6 +43,7 @@ const gameState = {
   moveEnabled: true,
   players: [] as any,
 };
+let events: any[] = [];
 
 // heartbeat
 declare module "ws" {
@@ -96,6 +97,16 @@ wss.on("connection", async (ws) => {
     event: JSON.stringify({ event: "player joined", player: { id } }),
   });
 });
+
+setInterval(() => {
+  if (events.length === 0) return;
+
+  const eventsString = JSON.stringify(events);
+
+  broadcast(eventsString);
+
+  events = [];
+}, 1000);
 
 streamListener();
 
@@ -196,16 +207,16 @@ async function streamListener() {
     const messages: { id: string; message: any }[] = streams[0].messages;
     const parsedMessages = messages.map(({ message }) => JSON.parse(message.event));
 
-    broadcast(JSON.stringify(parsedMessages));
-
     parsedMessages.forEach((event: any) => {
-      switch (event.id) {
+      switch (event.event) {
         case "player joined": {
+          events.push(event);
           gameState.players.push(event.player);
           break;
         }
 
         case "player left": {
+          events.push(event);
           gameState.players.splice(
             gameState.players.findIndex((player: any) => player.id === event.player.id),
             1
